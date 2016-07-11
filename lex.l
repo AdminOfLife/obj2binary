@@ -1,5 +1,6 @@
 %{
 #include <stdlib.h>
+#include "type.h"
 #include "bison.hpp"
 void yyerror(char *);
 %}
@@ -9,22 +10,22 @@ void yyerror(char *);
 
     /* Vertex */
 ^v {
-    printf("v ");
+    //printf("v ");
     return VERTEX;
 }
 
 ^vn {
-    printf("vn ");
+    //printf("vn ");
     return NORMAL;
 }
 
 ^vt {
-    printf("vt ");
+    //printf("vt ");
     return TEXTURE;
 }
 
 ^f {
-    printf("f ");
+    //printf("f ");
     return FACE;
 }
 
@@ -35,14 +36,14 @@ void yyerror(char *);
 
     /* integers */
 [-+]?[0-9]+ {
-    printf("i");
+    //printf("i");
     yylval.i = atoi(yytext);
     return INTEGER;
 }
 
     /* float */
 [-+]?[0-9]+\.?[0-9]+ {
-    printf("f");
+    //printf("f");
     yylval.f = atof(yytext);
     return FLOAT;
 }
@@ -56,7 +57,7 @@ void yyerror(char *);
 
     /* token */
 \/ {
-    printf("/");
+    //printf("/");
     return '/';
 }
 
@@ -66,7 +67,7 @@ void yyerror(char *);
     /* skip whitespace */
 [ \t] ;
 \n {
-    printf("\n");
+    //printf("\n");
 };
 
     /* anything else is an error */
