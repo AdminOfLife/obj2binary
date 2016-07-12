@@ -1,7 +1,7 @@
 %{
 #include <stdio.h>
 #include <stdlib.h>
-#include <vector>
+#include <unistd.h>
 #include <vector>
 #include "type.h"
 #include "bison.hpp"
@@ -10,7 +10,13 @@ using namespace std;
 
 extern int yylex(void);
 extern void yyerror(char *);
+
 #define POLYGON_MAX 8
+#define LOGV(args...) if (verbose) printf(args)
+
+bool invertX;
+bool invertY;
+bool verbose;
 
 vector<Vertex> vList;
 vector<Normal> vnList;
@@ -55,17 +61,17 @@ InterlacedTriangle getTriangle(Index idx) {
         return triangle;
     } else {
         const Vertex & v = vList[idx.vi];
-        //printf("v%d(%5f %5f %5f)\n", idx.vi, v.v[0], v.v[1], v.v[2]);
+        LOGV("v%d(%5f %5f %5f)\n", idx.vi, v.v[0], v.v[1], v.v[2]);
         triangle.v = v;
     }
 
-    if (idx.vni == -1) {
+    if (idx.vni != -1) {
         if (idx.vni >= vnList.size()) {
             puts("vni out of range");
             return triangle;
         } else {
             const Normal & vn = vnList[idx.vni];
-            //printf("n%d(%5f %5f %5f)\n", idx.vni, vn.v[0], vn.v[1], vn.v[2]);
+            LOGV("n%d(%5f %5f %5f)\n", idx.vni, vn.v[0], vn.v[1], vn.v[2]);
             triangle.vn = vn;
         }
     }
@@ -76,7 +82,7 @@ InterlacedTriangle getTriangle(Index idx) {
             return triangle;
         } else {
             const TextureCoord & vt = vtList[idx.vti];
-            //printf("vt%d(%5f %5f)\n", idx.vti, vt.v[0], vt.v[1]);
+            LOGV("vt%d(%5f %5f)\n", idx.vti, vt.v[0], vt.v[1]);
             triangle.vt = vt;
         }
     }
@@ -118,32 +124,32 @@ objcmd:
 vertex:
     VERTEX FLOAT FLOAT FLOAT {
         vList.push_back(Vertex{.v={$2, $3, $4}});
-        //printf("v %6f %6f %6f\n", $2, $3, $4);
+        LOGV("v %6f %6f %6f\n", $2, $3, $4);
     }
     ;
 
 normal:
     NORMAL FLOAT FLOAT FLOAT {
         vnList.push_back(Normal{.v={$2, $3, $4}});
-        //printf("vn %6f %6f %6f\n", $2, $3, $4);
+        LOGV("vn %6f %6f %6f\n", $2, $3, $4);
     }
     ;
 
 texture:
     TEXTURE FLOAT FLOAT FLOAT {
         // don't care the z value
-        vtList.push_back(TextureCoord{.v={$2, $3}});
-        //printf("vt %6f %6f %6f\n", $2, $3, $4);
+        vtList.push_back(TextureCoord{.v={$2, 1.0f - $3}});
+        LOGV("vt %6f %6f %6f\n", $2, $3, $4);
     }
     | TEXTURE FLOAT FLOAT {
-        vtList.push_back(TextureCoord{.v={$2, $3}});
-        //printf("vt %6f %6f\n", $2, $3);
+        vtList.push_back(TextureCoord{.v={$2, 1.0f - $3}});
+        LOGV("vt %6f %6f\n", $2, $3);
     }
     ;
 
 face:
     face_triangle {
-        //printf("P%d ", polygonCount);
+        LOGV("\nCollect P%d\n", polygonCount);
         checkConsist();
         for (int i = 0; i < 3; i++) {
             Index idx = indexTemp[i];
@@ -157,7 +163,7 @@ face:
         polygonCount = 0;
     }
     | face_polygon {
-        //printf("P%d ", polygonCount);
+        LOGV("\nCollect P%d\n", polygonCount);
         checkConsist();
         InterlacedTriangle triangle0 = getTriangle(indexTemp[0]);
         InterlacedTriangle triangle1 = getTriangle(indexTemp[1]);
@@ -193,25 +199,25 @@ index_type:
         indexType[polygonCount] = IT_V;
         indexTemp[polygonCount] = Index{.vi=$1 - 1, .vti=-1, .vni=-1};
         polygonCount++;
-        //printf("%d ", $1);
+        LOGV("%d ", $1);
     }
     | INTEGER '/' INTEGER '/' INTEGER {
         indexType[polygonCount] = IT_V_VT_VN;
         indexTemp[polygonCount] = Index{.vi=$1 - 1, .vti=$3 - 1, .vni=$5 - 1};
         polygonCount++;
-        //printf("%d/%d/%d ", $1, $3, $5);
+        LOGV("%d/%d/%d ", $1, $3, $5);
     }
     | INTEGER '/' '/' INTEGER {
         indexType[polygonCount] = IT_V_VN;
         indexTemp[polygonCount] = Index{.vi=$1 - 1, .vti=-1, .vni=$4 - 1};
         polygonCount++;
-        //printf("%d//%d \n", $1, $4);
+        LOGV("%d//%d \n", $1, $4);
     }
     | INTEGER '/' INTEGER {
         indexType[polygonCount] = IT_V_VT;
         indexTemp[polygonCount] = Index{.vi=$1 - 1, .vti=$3 - 1, .vni=-1};
         polygonCount++;
-        //printf("%d/%d \n", $1, $3);
+        LOGV("%d/%d \n", $1, $3);
     }
     ;
 
@@ -222,19 +228,46 @@ void yyerror(char *s) {
 }
 
 void usage() {
-    printf("\n");
-}
-
-void init() {
+    printf( "Parsing an obj file and save as a binary for opengl fast reading.\n"
+            "if no pipeline input, it blocked.  If no argument, work quietly.\n"
+            "\n"
+            "Usage: cat one.obj | obj2binary.src [OPTION...] [-o <output.bin>]\n"
+            "\n"
+            "OPTION:\n"
+            "    -x             Invert object texture x coord by (1.0f - x)\n"
+            "    -y             Invert object texture y coord by (1.0f - y)\n"
+            "                   OpenGL need invert y for my object file.\n"
+            "    -o <filename>  output file to the following filename.\n"
+            "    -v             show more log.\n"
+        );
 }
 
 int main(int argc, char ** argv) {
     usage();
-    init();
+    int opt;
+    const char * outputfile = NULL;
+    while ((opt = getopt(argc, argv, "vxyo:")) != -1) {
+        switch (opt) {
+        case 'x':
+            invertX = true;
+            printf("invertX\n");
+            break;
+        case 'y':
+            invertY = true;
+            printf("invertY\n");
+            break;
+        case 'o':
+            outputfile = optarg;
+            printf("output to %s\n", outputfile);
+            break;
+        case 'v':
+            verbose = true;
+        }
+    }
     clear();
     yyparse();
-    if (argc == 2) {
-        FILE * f = fopen(argv[1], "w");
+    if (outputfile != NULL) {
+        FILE * f = fopen(outputfile, "w");
         if (f == NULL) {
             puts("Fail to open file");
             return -1;
