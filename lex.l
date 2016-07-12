@@ -29,10 +29,18 @@ void yyerror(char *);
     return FACE;
 }
 
-^s.* ;
-^g.* ;
-^mtllib.* ;
-^usemtl.* ;
+^s.*$ {
+    //printf("%s", yytext);
+}
+^g.*$ {
+    //printf("%s", yytext);
+}
+^mtllib.*$ {
+    //printf("%s", yytext);
+}
+^usemtl.*$ {
+    //printf("%s", yytext);
+}
 
     /* integers */
 [-+]?[0-9]+ {
@@ -67,6 +75,7 @@ void yyerror(char *);
     /* skip whitespace */
 [ \t] ;
 \n {
+    yylineno++;
     //printf("\n");
 };
 

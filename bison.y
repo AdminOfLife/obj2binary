@@ -13,9 +13,9 @@ extern int yylex(void);
 extern void yyerror(const char *);
 extern int yylineno;
 
-#define POLYGON_MAX 8
 #define LOGV(args...) if (verbose) printf(args)
 
+unsigned int maxPolygon;
 bool invertX;
 bool invertY;
 bool verbose;
@@ -29,8 +29,8 @@ vector<TextureCoord> vtList;
 
 int polygonCount;
 int faceType;
-int indexType[POLYGON_MAX];
-Index indexTemp[POLYGON_MAX];
+int * indexType;
+Index * indexTemp;
 
 vector<InterlacedTriangle> output;
 BinaryHeader header;
@@ -47,10 +47,12 @@ void checkConsist() {
     if (faceType == IT_NONE)
         faceType = first;
     if (faceType != first)
-        printf("\n*** Face type not consist at line %d\n", yylineno);
+        printf("\n*** Face type not consist at line %d\n", yylineno+1);
+    if (polygonCount > maxPolygon)
+        printf("*** Too many polygon (%d > MAX%d)\n", polygonCount, maxPolygon );
     for (int i = 1; i < polygonCount; i++) {
         if (first != indexType[i]) {
-            printf("\n*** Obj syntax error: Index type not consist at line %d\n", yylineno);
+            printf("\n*** Obj syntax error: Index type not consist at line %d\n", yylineno+1);
             exit(-1);
         }
     }
@@ -63,7 +65,7 @@ InterlacedTriangle getTriangle(Index idx) {
             .vn = {0,0,0}
         };
     if (idx.vi >= vList.size()) {
-        printf("*** vi out of range at line %d\n", yylineno);
+        printf("*** vi out of range at line %d\n", yylineno+1);
         return triangle;
     } else {
         const Vertex & v = vList[idx.vi];
@@ -73,7 +75,7 @@ InterlacedTriangle getTriangle(Index idx) {
 
     if (idx.vni != -1) {
         if (idx.vni >= vnList.size()) {
-            printf("*** vni out of range at line %d\n", yylineno);
+            printf("*** vni out of range at line %d\n", yylineno+1);
             return triangle;
         } else {
             const Normal & vn = vnList[idx.vni];
@@ -84,7 +86,7 @@ InterlacedTriangle getTriangle(Index idx) {
 
     if (idx.vti != -1) {
         if (idx.vti >= vtList.size()) {
-            printf("*** vti out of range at line %d\n", yylineno);
+            printf("*** vti out of range at line %d\n", yylineno+1);
             return triangle;
         } else {
             const TextureCoord & vt = vtList[idx.vti];
@@ -130,14 +132,14 @@ objcmd:
 vertex:
     VERTEX FLOAT FLOAT FLOAT {
         vList.push_back(Vertex{.v={$2, $3, $4}});
-        LOGV("v %6f %6f %6f\n", $2, $3, $4);
+        LOGV("%d:v %6f %6f %6f\n", yylineno+1, $2, $3, $4);
     }
     ;
 
 normal:
     NORMAL FLOAT FLOAT FLOAT {
         vnList.push_back(Normal{.v={$2, $3, $4}});
-        LOGV("vn %6f %6f %6f\n", $2, $3, $4);
+        LOGV("%d:vn %6f %6f %6f\n", yylineno+1, $2, $3, $4);
     }
     ;
 
@@ -147,19 +149,19 @@ texture:
         vtList.push_back(TextureCoord{.v={
             invertX ? 1.0f - $2 : $2,
             invertY ? 1.0f - $3 : $3}});
-        LOGV("vt %6f %6f %6f\n", $2, $3, $4);
+        LOGV("%d:vt %6f %6f %6f\n", yylineno+1, $2, $3, $4);
     }
     | TEXTURE FLOAT FLOAT {
         vtList.push_back(TextureCoord{.v={
             invertX ? 1.0f - $2 : $2,
             invertY ? 1.0f - $3 : $3}});
-        LOGV("vt %6f %6f\n", $2, $3);
+        LOGV("%d:vt %6f %6f\n", yylineno+1, $2, $3);
     }
     ;
 
 face:
     face_triangle {
-        LOGV("\nCollect P%d\n", polygonCount);
+        LOGV("\n%d:Collect P%d\n", yylineno+1, polygonCount);
         checkConsist();
         for (int i = 0; i < 3; i++) {
             Index idx = indexTemp[i];
@@ -173,7 +175,7 @@ face:
         polygonCount = 0;
     }
     | face_polygon {
-        LOGV("\nCollect P%d\n", polygonCount);
+        LOGV("\n%d:Collect P%d\n", yylineno+1, polygonCount);
         checkConsist();
         InterlacedTriangle triangle0 = getTriangle(indexTemp[0]);
         InterlacedTriangle triangle1 = getTriangle(indexTemp[1]);
@@ -252,6 +254,7 @@ void usage() {
 "    -o <filename>  output file to the following filename.\n"
 "    -v             show more log.\n"
 "ADVANCED OPTION:\n"
+"    -p <polygons>  The max number of polygons can have.\n"
 "    -i <format>    Decide how the data is interleaved.\n"
 "                   <format> can be: vtn vnt vt vn v\n"
 "                   default is \"vtn\".  Means Vertex3Texture2Normal3.\n"
@@ -301,10 +304,12 @@ int main(int argc, char ** argv) {
     invertX = false;
     invertY = false;
     interleaved = true;
-    needHeader = true;
+    needHeader = false;
+    maxPolygon = 16;
+
     dataFormat = FORMAT_V_VT_VN;
 
-    while ((opt = getopt(argc, argv, "i:I:hHvxyo:")) != -1) {
+    while ((opt = getopt(argc, argv, "i:I:hHp:vxyo:")) != -1) {
         switch (opt) {
         case 'x':
             invertX = true;
@@ -334,6 +339,14 @@ int main(int argc, char ** argv) {
             usage();
             exit(0);
             break;
+        case 'p':
+            maxPolygon = atoi(optarg);
+            printf("Max polygon size is %d\n", maxPolygon);
+            if (maxPolygon < 4 || maxPolygon > 2560) {
+                printf("Please let the max polygon, p: \" 4 <= p <= 2560\"\n");
+                exit(-1);
+            }
+            break;
         case 'H':
             needHeader = true;
             printf("Header is enabled.\n");
@@ -342,8 +355,13 @@ int main(int argc, char ** argv) {
             break;
         }
     }
+
+    indexType = new int [maxPolygon];
+    indexTemp = new Index [maxPolygon];
+
     clear();
     yyparse();
+    printf("\n\nWrite to file: %s\n", outputfile);
     if (outputfile != NULL) {
         FILE * f = fopen(outputfile, "w");
         if (f == NULL) {
@@ -359,12 +377,18 @@ int main(int argc, char ** argv) {
         header.vnOffset = (dataFormat & FORMAT_VN_MASK) >> FORMAT_VN_SHIFT;
         header.dataOffset = sizeof(BinaryHeader);
 
+        printf("Object Infomation:\n");
+        printf("  Vertics:  %lu\n", vList.size());
+        printf("  Normals:  %lu\n", vnList.size());
+        printf("  TexCoords: %lu\n", vtList.size());
+        printf("  Triangles: %u\n", header.triangleCount);
+        printf("  dataBytes: %u\n", header.dataBytes);
         if (needHeader) {
             fwrite(((const void*) &header), sizeof(header), 1, f);
         }
 
-        for (int i = 0; i < output.size(); i++) {
-            if (interleaved) {
+        if (interleaved) {
+            for (int i = 0; i < output.size(); i++) {
                 // Interleaved
                 const InterlacedTriangle& t = output[i];
 
@@ -382,14 +406,19 @@ int main(int argc, char ** argv) {
                 // TextureCoord for V_VN_VT
                 if (header.hasVT && (dataFormat == FORMAT_V_VN_VT))
                     fwrite(&t.vt, sizeof(TextureCoord), 1, f);
-            } else {
-                // TODO
-                // NonInterleaved
             }
+        } else {
+            // TODO
+            // NonInterleaved
+            printf("Sorry, We don't support non-interleaved format now.\n");
         }
         fclose(f);
         f = NULL;
     }
+//    delete [] indexType;
+//    indexType = NULL;
+//    delete [] indexTemp;
+//    indexTemp = NULL;
     return 0;
 }
 
