@@ -244,7 +244,7 @@ void usage() {
 "Parsing an obj file and save as a binary for opengl fast reading.\n"
 "if no pipeline input, it blocked.  If no argument, work quietly.\n"
 "\n"
-"Usage: cat one.obj | obj2binary.src [OPTION...] [-o <output.bin>]\n"
+"Usage: cat one.obj | obj2binary [OPTION...] [-o <output.bin>]\n"
 "\n"
 "OPTION:\n"
 "    -h             This help message.\n"
@@ -261,6 +261,10 @@ void usage() {
 "    -I <format>    No interleaved data.  This will ignore the -i setting.\n"
 "    -H             Enable header with format and size.  Default has no header.\n"
 "                   The header struct will be descripted below.\n"
+"    -b             Use -b to specify the header with big-endian for java.\n"
+"EXAMPLE:\n"
+"    For Android app,\n"
+"        cat one.obj | obj2binary -H -b -i vtx -y -p 30 -o one.bin\n"
     );
 }
 
@@ -297,6 +301,18 @@ size_t bytesByFormat(enum FormatType f) {
     }
 }
 
+/* write a 32 bit little-endian integer */
+void write32(FILE *out, unsigned int p)
+{
+	unsigned char q[4];
+	q[0] = (p >> 24) & 0xFF;
+	q[1] = (p >> 16) & 0xFF;
+	q[2] = (p >> 8) & 0xFF;
+	q[3] = p & 0xFF;
+	fwrite(q, 1, 4, out);
+	return;
+}
+
 int main(int argc, char ** argv) {
     puts("obj2binary");
     int opt;
@@ -306,10 +322,11 @@ int main(int argc, char ** argv) {
     interleaved = true;
     needHeader = false;
     maxPolygon = 16;
+    bool littleEndian = true;
 
     dataFormat = FORMAT_V_VT_VN;
 
-    while ((opt = getopt(argc, argv, "i:I:hHp:vxyo:")) != -1) {
+    while ((opt = getopt(argc, argv, "i:I:hbHp:vxyo:")) != -1) {
         switch (opt) {
         case 'x':
             invertX = true;
@@ -347,6 +364,10 @@ int main(int argc, char ** argv) {
                 exit(-1);
             }
             break;
+        case 'b':
+            littleEndian = false;
+            printf("Header is Big-Endian\n");
+            break;
         case 'H':
             needHeader = true;
             printf("Header is enabled.\n");
@@ -368,7 +389,7 @@ int main(int argc, char ** argv) {
             puts("Fail to open file");
             return -1;
         }
-        header.triangleCount = output.size();
+        header.vertices = output.size();
         header.dataBytes = output.size() * bytesByFormat(dataFormat);
         header.format = dataFormat | (interleaved ? 0x0 : FORMAT_NONINTERLEAVED);
         header.hasVT = !!(dataFormat & FORMAT_VT_MASK);
@@ -381,10 +402,21 @@ int main(int argc, char ** argv) {
         printf("  Vertics:  %lu\n", vList.size());
         printf("  Normals:  %lu\n", vnList.size());
         printf("  TexCoords: %lu\n", vtList.size());
-        printf("  Triangles: %u\n", header.triangleCount);
+        printf("  Triangles: %u\n", header.vertices);
         printf("  dataBytes: %u\n", header.dataBytes);
         if (needHeader) {
-            fwrite(((const void*) &header), sizeof(header), 1, f);
+            if (littleEndian) {
+                fwrite(((const void*) &header), sizeof(header), 1, f);
+            } else {
+                write32(f, header.vertices);
+                write32(f, header.dataBytes);
+                write32(f, header.format);
+                write32(f, header.hasVT);
+                write32(f, header.vtOffset);
+                write32(f, header.hasVN);
+                write32(f, header.vnOffset);
+                write32(f, header.dataOffset);
+            }
         }
 
         if (interleaved) {

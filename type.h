@@ -19,7 +19,7 @@ struct InterlacedTriangle {
 };
 
 struct BinaryHeader {
-    unsigned int triangleCount;
+    unsigned int vertices;
     unsigned int dataBytes;
     unsigned int format;
     unsigned int hasVT;
